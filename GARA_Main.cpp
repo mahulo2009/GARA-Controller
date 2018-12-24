@@ -71,6 +71,7 @@ void bldc_val_received(mc_values *val)
   WheelBLCD * wheel = (WheelBLCD*)robot->getWheel(wheel_current_previous);
   BLCDHardwareController * controller = (BLCDHardwareController *)(wheel->getHardwareController());
 
+  //TODO Add this parameters in the configuration file
   float vel = ( (val->rpm/15.0) * (2*PI)/60 * controller->invert_ );  //radians per second
 
   wheel->setCurrentVelocity( vel ) ;

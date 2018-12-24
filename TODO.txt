@@ -1,0 +1,15 @@
+
+- How to read the encoder in the lower level clasess, to avoid to use getter from the
+top level classes in the main file.
+
+- Put all the constants in the configuration file (ros params)
+
+- Find out why it is necessary delays during the start up of the setup.
+
+- Find out why it is not working reading the configuration from the ros param service.
+
+- Add a Kalman filter
+
+
+
+	
