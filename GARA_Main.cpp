@@ -6,25 +6,79 @@
 #include <RosConfigBLDC.h>
 #include <TaskScheduler.h>
 #include <bldc_interface_uart.h>
+#include <comm_uart.h>
 
 //Global variables
 RosController  * ros_controller = 0;
 RobotBase * robot = 0;
 Scheduler runner;
 
+int wheel_current = 0;
+int wheel_current_previous = 0;
 
 //TODO FIND OUT TO RUN THIS TASK IN THE LOWER LEVER CLASS : ENCODER.
 //¿TODO IT IS NECESSARY TO USE ENCODER CLASS OR THE WHEEL CLASS IS ENOUGH?
 void bldc_run_timer_callback();
 void bldc_read_serial_callback();
 void bldc_read_values_callback();
-
 void ros_callback();
 
 Task bldc_run_timer_task(1000, TASK_FOREVER, &bldc_run_timer_callback);
 Task bldc_read_serial_task(0, TASK_FOREVER, &bldc_read_serial_callback);
-Task bldc_read_values_task(5000, 10000, &bldc_read_values_callback);
+Task bldc_read_values_task(100, 10000, &bldc_read_values_callback);
 Task ros_task(100, TASK_FOREVER, &ros_callback);
+
+void bldc_run_timer_callback() 
+{
+
+	bldc_interface_uart_run_timer();
+
+}
+
+void bldc_read_serial_callback() {
+  
+  while (Serial1.available()) {
+	  bldc_interface_uart_process_byte(Serial1.read());
+	}
+
+}
+
+void bldc_read_values_callback() {
+    
+  if (wheel_current == 0) 
+  {
+    wheel_current_previous = 0;
+    wheel_current = 1;
+    
+  }
+  else
+  {
+    wheel_current_previous = 1;
+    wheel_current = 0;
+  }
+
+  WheelBase * wheel = robot->getWheel(wheel_current);
+  BLCDHardwareController * controller = (BLCDHardwareController *)(wheel->getHardwareController());
+  
+  bldc_interface_set_forward_can(controller->getCANId()); //TODO
+  bldc_interface_get_values();
+
+}
+
+void bldc_val_received(mc_values *val) 
+{
+ 
+  WheelBLCD * wheel = (WheelBLCD*)robot->getWheel(wheel_current_previous);
+  BLCDHardwareController * controller = (BLCDHardwareController *)(wheel->getHardwareController());
+
+  float vel = ( (val->rpm/15.0) * (2*PI)/60 * controller->invert_ );  //radians per second
+
+  wheel->setCurrentVelocity( vel ) ;
+  wheel->setDistance( ( val->tachometer/90.0) * 2 * PI * 0.125 * controller->invert_ ); //meters
+
+  bldc_read_values_task.restart();
+
+}
 
 void setup() {
 
@@ -43,13 +97,19 @@ void setup() {
   robot =  factory->assembly();
   ros_adapter_robot->attachRobot(robot);
 
-  runner.init();
+  comm_uart_init();
 
-  runner.addTask(bldc_run_timer_task);
-  Serial.println("BLCD uart run time task created");
+  bldc_interface_set_rx_value_func(bldc_val_received);
+
+  delay(1000);  //TODO FIND OUT WHY IS NECESSARY
+
+  runner.init();
 
   runner.addTask(bldc_read_values_task);
   Serial.println("BLDC read values task created");
+
+  runner.addTask(bldc_run_timer_task);
+  Serial.println("BLCD uart run time task created");
 
   runner.addTask(bldc_read_serial_task);
   Serial.println("BLCD read serial task created");
@@ -57,41 +117,20 @@ void setup() {
 	runner.addTask(ros_task);
   Serial.println("ROS task created");
 
-  Serial.println("BLCD uart run time task enabled");
- 	//bldc_run_timer_task.enable();
+  delay(5000);
 
   Serial.println("BLDC read values task  enabled");
- 	//bldc_read_values_task.enable();
-  
+ 	bldc_read_values_task.enable();
+
+  Serial.println("BLCD uart run time task enabled");
+ 	bldc_run_timer_task.enable();
+ 
 	Serial.println("BLCD read serial task enabled");
-  //bldc_read_serial_task.enable();
+  bldc_read_serial_task.enable();
 
   Serial.println("ROS task  enabled");
   ros_task.enable();
-}
 
-void bldc_run_timer_callback() 
-{
-  //Serial.println("bldc_interface_uart_run_timer_callback: ");
-	bldc_interface_uart_run_timer();
-}
-
-void bldc_read_serial_callback() {
-  //Serial.print("bldc_interface_read_serial_callback: ");
-  while (Serial1.available()) {
-	  bldc_interface_uart_process_byte(Serial1.read());
-	}
-}
-
-void bldc_read_values_callback() {
-  //Serial.println("bldc_interface_read_values_callback: ");
-  bldc_interface_set_forward_can(0); //TODO
-  bldc_interface_get_values();
-}
-
-void bldc_val_received(mc_values *val) {
-  //Serial.printf(F("RPM:           %.1f RPM\r\n"), val->rpm);
-  bldc_read_values_task.restart();
 }
 
 void ros_callback() 
@@ -111,5 +150,7 @@ void ros_callback()
 
 void loop() 
 {
+
   runner.execute();
+
 }

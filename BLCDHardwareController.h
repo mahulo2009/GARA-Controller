@@ -5,7 +5,7 @@
 #include "Arduino.h"
 #include "bldc_interface.h"
 
-#define BLCD_HARDWARE_CONTROLLER_DEBUG 1
+//#define BLCD_HARDWARE_CONTROLLER_DEBUG 1
 
 class BLCDHardwareController : public HardwareController {
 
@@ -14,11 +14,19 @@ class BLCDHardwareController : public HardwareController {
         BLCDHardwareController(float max_speed,int min_duty, int max_duty,int can_id,int invert);
         
         virtual void velocity(float velocity);
+
+        int getCANId() 
+        {
+            return can_id_;
+        }
+
+        int invert_;
     
     protected:
     
         virtual void setupDirection(Wheel_Direction direction);       
         virtual void power(float duty);
+
 
     private:
 
@@ -26,11 +34,10 @@ class BLCDHardwareController : public HardwareController {
         int min_duty_;				    //minimum duty
         int max_duty_;				    //maximun duty
         int can_id_;
-        int invert_;
+        
         
         Wheel_Direction wheel_direction_;
-
-
+        
 };
 
 #endif

@@ -30,27 +30,49 @@ void BLCDHardwareController::velocity(float velocity)
 {
     if (velocity < 0) 
     {
-		setupDirection(BACKWARD);	
+		setupDirection(BACKWARD);	        
 	} 
     else 
     {
   		setupDirection(FORWARD);
 	}
+
+    #ifdef BLCD_HARDWARE_CONTROLLER_DEBUG
+    Serial.print("velocity:");
+    Serial.println(velocity);
+    #endif
     
-    float duty = ( (max_duty_-min_duty_) * abs(velocity) ) / (max_speed_) + min_duty_;
+    //TODO PUT THIS VALUE IN CONFIGURATION (GAIN,OFFSET)
+    float duty =  0.0145 * abs(velocity);
     power(duty);
 }
 
 void BLCDHardwareController::power(float duty)
 {
+
+    #ifdef BLCD_HARDWARE_CONTROLLER_DEBUG
+    Serial.print("bldc_interface_set_forward_can:");
+    Serial.println(can_id_);
+    #endif
+  
     bldc_interface_set_forward_can(can_id_);
 
     if ( wheel_direction_ == FORWARD )
     {
+        #ifdef BLCD_HARDWARE_CONTROLLER_DEBUG
+        Serial.print("bldc_interface_set_duty_cycle:");
+        Serial.println(duty * invert_);
+        #endif
+
         bldc_interface_set_duty_cycle(duty * invert_);
     }
     else 
     {
+        #ifdef BLCD_HARDWARE_CONTROLLER_DEBUG
+        Serial.print("bldc_interface_set_duty_cycle:");
+        Serial.println(-duty * invert_);
+        #endif
+
         bldc_interface_set_duty_cycle(-duty * invert_);
     }
 }
