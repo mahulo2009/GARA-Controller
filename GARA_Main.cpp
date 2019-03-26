@@ -31,7 +31,7 @@ void bldc_val_received_2(mc_values *val);
 Task bldc_run_timer_task(1, TASK_FOREVER, &bldc_run_timer_callback);
 Task bldc_read_serial_task(0, TASK_FOREVER, &bldc_read_serial_callback);
 Task bldc_read_values_task(250, TASK_FOREVER, &bldc_read_values_callback);
-Task ros_task(250, TASK_FOREVER, &ros_callback);
+Task ros_task(20, TASK_FOREVER, &ros_callback);
 
 /**
  * 
