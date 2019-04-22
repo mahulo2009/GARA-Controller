@@ -4,108 +4,45 @@
 #include <ImuBase.h>
 #include <Imu.h>
 #include <RosAdapterRobot.h>
+#include <BLCDHardwareController.h>
+#include <DifferentialWheeledRobot.h>
+#include <WheelEncoder.h>
 #include <RosAdapterImu.h>
-#include <RobotFactoryBLDC.h>
 #include <RosConfigBLDC.h>
 #include <TaskScheduler.h>
-#include <bldc_interface_uart.h>
-#include <comm_uart.h>
 
 //----Global variables
-Scheduler runner;
-RosController  * ros_controller = 0;
-RobotBase * robot = 0;
-ImuBase * imu = 0;
-int wheel_current = 0;
+Scheduler                 runner;
+
+RosController  *          ros_controller = 0;
+RobotBase *               robot = 0;
+WheelBase *               wheel1 = 0;
+WheelBase *               wheel2 = 0;
+BLCDHardwareController *  controller1 = 0;
+BLCDHardwareController *  controller2 = 0;
+ImuBase *                 imu = 0;
+int                       wheel_current = 0;
 
 
-//¿TODO IT IS NECESSARY TO USE ENCODER CLASS OR THE WHEEL CLASS IS ENOUGH?
-void bldc_run_timer_callback();
-void bldc_read_serial_callback();
-void bldc_read_values_callback();
-void ros_callback();
+//----Tasks
+void                      clean_task_callback();
+void                      fast_task_callback();
+void                      medium_task_callback();
+void                      slow_task_callback();
 
-void bldc_val_received_1(mc_values *val); 
-void bldc_val_received_2(mc_values *val);
+Task                      clean_task(1, TASK_FOREVER, &clean_task_callback);
+Task                      fast_task(20, TASK_FOREVER, &fast_task_callback);
+Task                      medium_task(100, TASK_FOREVER, &medium_task_callback);
+Task                      slow_task(250, TASK_FOREVER, &slow_task_callback);
 
-Task bldc_run_timer_task(1, TASK_FOREVER, &bldc_run_timer_callback);
-Task bldc_read_serial_task(0, TASK_FOREVER, &bldc_read_serial_callback);
-Task bldc_read_values_task(250, TASK_FOREVER, &bldc_read_values_callback);
-Task ros_task(20, TASK_FOREVER, &ros_callback);
-
-/**
- * 
- */
-void bldc_run_timer_callback() 
-{
-	bldc_interface_uart_run_timer();
-}
-
-/**
- * 
- */
-void bldc_read_serial_callback() { 
-  while (Serial1.available()) {
-	  bldc_interface_uart_process_byte(Serial1.read());
-	}
-}
-
-/**
- * 
- */
-void bldc_read_values_callback() {   
-  if (wheel_current == 0) 
-  {
-    wheel_current = 1;
-    bldc_interface_set_rx_value_func(bldc_val_received_2);
-  }
-  else
-  {    
-    wheel_current = 0;
-    bldc_interface_set_rx_value_func(bldc_val_received_1);
-  }
-
-  WheelBase * wheel = robot->getWheel(wheel_current);
-  BLCDHardwareController * controller = (BLCDHardwareController *)(wheel->getHardwareController());
-  
-  bldc_interface_set_forward_can(controller->getCANId()); //TODO
-  bldc_interface_get_values();
-}
-
-void bldc_val_received_1(mc_values *val) 
-{
-  WheelBLCD * wheel = (WheelBLCD*)robot->getWheel(0);
-  BLCDHardwareController * controller = (BLCDHardwareController *)(wheel->getHardwareController());
-
-  //TODO Add this parameters in the configuration file
-  float vel = ( (val->rpm/15.0) * (2*PI)/60 * controller->invert_ );  //radians per second
-
-  wheel->setCurrentVelocity( vel ) ;
-  //TODO WHY IS THE DISTANCE NEEDED FOR?
-  wheel->setDistance( ( val->tachometer/90.0) * 2 * PI * 0.125 * controller->invert_ ); //meters
-
-  bldc_read_values_task.restart();
-}
-
-void bldc_val_received_2(mc_values *val) 
-{
-  WheelBLCD * wheel = (WheelBLCD*)robot->getWheel(1);
-  BLCDHardwareController * controller = (BLCDHardwareController *)(wheel->getHardwareController());
-
-  //TODO Add this parameters in the configuration file
-  float vel = ( (val->rpm/15.0) * (2*PI)/60 * controller->invert_ );  //radians per second
-
-  wheel->setCurrentVelocity( vel ) ;
-  wheel->setDistance( ( val->tachometer/90.0) * 2 * PI * 0.125 * controller->invert_ ); //meters
-
-  bldc_read_values_task.restart();
-}
-
+//----Setup
 void setup() {
+
   Serial.begin(9600);
+
   delay(5000);
 
-  Serial.println("Gara Controller v2.0");
+  Serial.println("Gara Controller v3.0");
 
   RosAdapterRobot * ros_adapter_robot = new RosAdapterRobot();
   RosAdapterImu * ros_adapter_imu = new RosAdapterImu();
@@ -118,59 +55,89 @@ void setup() {
   RosConfigBLDC * ros_config_motor = new RosConfigBLDC();
   ros_controller->readConfiguration(ros_config_motor);
 
-  RobotFactory * factory = new  RobotFactoryBLDC(ros_config_motor); 
-  robot =  factory->assembly();
+  RobotBase * robot = 
+        new DifferentialWheeledRobot(ros_config_motor->robot_wheel_separation,
+                                      ros_config_motor->robot_wheel_radious);
 
-  imu = new Imu();
+  controller1 = 
+      new BLCDHardwareController(0,
+                                  ros_config_motor->max_speed,
+                                  ros_config_motor->min_duty,
+                                  ros_config_motor->max_duty,
+                                  ros_config_motor->wheel_config[0].can_id,
+                                  ros_config_motor->wheel_config[0].invert);
+
+  wheel1 = new WheelEncoder();
+  wheel1->attachController(controller1);
+
+  robot->addWheel(wheel1); 
+
+  controller2 = 
+      new BLCDHardwareController(1,
+                                  ros_config_motor->max_speed,
+                                  ros_config_motor->min_duty,
+                                  ros_config_motor->max_duty,
+                                  ros_config_motor->wheel_config[1].can_id,
+                                  ros_config_motor->wheel_config[1].invert);                                  
+
+  wheel2 = new WheelEncoder();
+  wheel2->attachController(controller2);
+
+  robot->addWheel(wheel2); 
+
+  ros_adapter_robot->attachRobot(robot);
   
-  comm_uart_init();
+  imu = new Imu();
 
+  ros_adapter_imu->attachImu(imu);
+    
   delay(1000);  //TODO FIND OUT WHY IS NECESSARY
 
   runner.init();
+    
+  runner.addTask(clean_task);
+  runner.addTask(fast_task);
+  runner.addTask(medium_task);
+  runner.addTask(slow_task);
 
-  runner.addTask(bldc_read_values_task);
-  Serial.println("BLDC read values task created");
+  delay(5000); 
 
-  runner.addTask(bldc_run_timer_task);
-  Serial.println("BLCD uart run time task created");
-
-  runner.addTask(bldc_read_serial_task);
-  Serial.println("BLCD read serial task created");
-
-	runner.addTask(ros_task);
-  Serial.println("ROS task created");
-
-  delay(5000);
-
-  Serial.println("BLDC read values task  enabled");
- 	bldc_read_values_task.enable();
-
-  Serial.println("BLCD uart run time task enabled");
- 	bldc_run_timer_task.enable();
- 
-	Serial.println("BLCD read serial task enabled");
-  bldc_read_serial_task.enable();
-
-  Serial.println("ROS task  enabled");
-  ros_task.enable();
-
-  ros_adapter_robot->attachRobot(robot);
-  ros_adapter_imu->attachImu(imu);
-
+  clean_task.enable();
+ 	fast_task.enable();
+ 	medium_task.enable();
+  slow_task.enable();
 }
 
-void ros_callback() 
+void clean_task_callback() 
 {
-  if (ros_controller != 0)
-  {
-    ros_controller->update();
-  }
+  BLCDHardwareController::buffer_clean();
+}
 
+void fast_task_callback() 
+{
+  BLCDHardwareController * controller;
+  
+  controller = wheel_current == 0 ? controller1: controller2;
+  wheel_current = wheel_current == 0 ? 1: 0;
+
+  if (controller!=0)
+    controller->update(0.05);
+}
+
+void medium_task_callback() 
+{
+  if (wheel1 != 0) 
+    wheel1->update(0.01);
+  if (wheel2 != 0) 
+    wheel2->update(0.01);
   if (robot != 0) 
-  {
-    robot->update(0.25); 
-  }
+    robot->update(0.01); 
+}
+
+void slow_task_callback() 
+{ 
+  if (ros_controller != 0)
+    ros_controller->update();
 }
 
 void loop() 
