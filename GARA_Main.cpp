@@ -116,7 +116,6 @@ void read_task_callback()
   BLCDHardwareController::buffer_read();
 }
 
-
 void fast_task_callback() 
 { 
 
